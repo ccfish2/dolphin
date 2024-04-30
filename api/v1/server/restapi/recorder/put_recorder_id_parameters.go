@@ -16,7 +16,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
-	"github.com/dolphin/api/v1/models"
+	"github.com/ccfish2/dolphin/api/v1/models"
 )
 
 // NewPutRecorderIDParams creates a new PutRecorderIDParams object

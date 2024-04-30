@@ -13,7 +13,7 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/validate"
 
-	"github.com/dolphin/api/v1/models"
+	"github.com/ccfish2/dolphin/api/v1/models"
 )
 
 // NewDeletePolicyParams creates a new DeletePolicyParams object

@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/dolphin/api/v1/models"
+	"github.com/ccfish2/dolphin/api/v1/models"
 )
 
 // GetServiceIDOKCode is the HTTP code returned for type GetServiceIDOK

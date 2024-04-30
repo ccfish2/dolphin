@@ -19,16 +19,16 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/dolphin/api/v1/server/restapi/bgp"
-	"github.com/dolphin/api/v1/server/restapi/daemon"
-	"github.com/dolphin/api/v1/server/restapi/endpoint"
-	"github.com/dolphin/api/v1/server/restapi/ipam"
-	"github.com/dolphin/api/v1/server/restapi/metrics"
-	"github.com/dolphin/api/v1/server/restapi/policy"
-	"github.com/dolphin/api/v1/server/restapi/prefilter"
-	"github.com/dolphin/api/v1/server/restapi/recorder"
-	"github.com/dolphin/api/v1/server/restapi/service"
-	"github.com/dolphin/api/v1/server/restapi/statedb"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/bgp"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/daemon"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/endpoint"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/ipam"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/metrics"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/policy"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/prefilter"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/recorder"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/service"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/statedb"
 )
 
 // NewCiliumAPIAPI creates a new CiliumAPI instance
