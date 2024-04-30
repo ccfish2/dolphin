@@ -21,11 +21,26 @@ import (
 	"github.com/go-openapi/swag"
 	"golang.org/x/net/netutil"
 	"github.com/sirupsen/logrus"
+	"github.com/go-openapi/loads"
+	"github.com/go-openapi/runtime/middleware"
+
 
 	"github.com/ccfish2/dolphin/api/v1/server/restapi"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/bgp"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/daemon"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/endpoint"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/ipam"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/metrics"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/policy"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/prefilter"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/recorder"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/service"
+	"github.com/ccfish2/dolphin/api/v1/server/restapi/statedb"
+
 	"github.com/ccfish2/dolphin/pkg/hive/cell"
 	"github.com/ccfish2/dolphin/pkg/hive"
-	"github.com/ccfish2/dolphin/api"
+	"github.com/ccfish2/dolphin/pkg/api"
+
 )
 
 const (
@@ -33,6 +48,150 @@ const (
 	schemeHTTPS = "https"
 	schemeUnix  = "unix"
 )
+
+type Spec struct {
+	*loads.Document
+
+	// DeniedAPIs is a set of APIs that are administratively disabled.
+	DeniedAPIs api.PathSet
+}
+
+type apiParams struct {
+	cell.In
+
+	Spec *Spec
+
+	Middleware middleware.Builder `name:"cilium-api-middleware" optional:"true"`
+
+	EndpointDeleteEndpointHandler        endpoint.DeleteEndpointHandler
+	EndpointDeleteEndpointIDHandler      endpoint.DeleteEndpointIDHandler
+	PolicyDeleteFqdnCacheHandler         policy.DeleteFqdnCacheHandler
+	IpamDeleteIpamIPHandler              ipam.DeleteIpamIPHandler
+	PolicyDeletePolicyHandler            policy.DeletePolicyHandler
+	PrefilterDeletePrefilterHandler      prefilter.DeletePrefilterHandler
+	RecorderDeleteRecorderIDHandler      recorder.DeleteRecorderIDHandler
+	ServiceDeleteServiceIDHandler        service.DeleteServiceIDHandler
+	BgpGetBgpPeersHandler                bgp.GetBgpPeersHandler
+	BgpGetBgpRoutePoliciesHandler        bgp.GetBgpRoutePoliciesHandler
+	BgpGetBgpRoutesHandler               bgp.GetBgpRoutesHandler
+	DaemonGetCgroupDumpMetadataHandler   daemon.GetCgroupDumpMetadataHandler
+	DaemonGetClusterNodesHandler         daemon.GetClusterNodesHandler
+	DaemonGetConfigHandler               daemon.GetConfigHandler
+	DaemonGetDebuginfoHandler            daemon.GetDebuginfoHandler
+	EndpointGetEndpointHandler           endpoint.GetEndpointHandler
+	EndpointGetEndpointIDHandler         endpoint.GetEndpointIDHandler
+	EndpointGetEndpointIDConfigHandler   endpoint.GetEndpointIDConfigHandler
+	EndpointGetEndpointIDHealthzHandler  endpoint.GetEndpointIDHealthzHandler
+	EndpointGetEndpointIDLabelsHandler   endpoint.GetEndpointIDLabelsHandler
+	EndpointGetEndpointIDLogHandler      endpoint.GetEndpointIDLogHandler
+	PolicyGetFqdnCacheHandler            policy.GetFqdnCacheHandler
+	PolicyGetFqdnCacheIDHandler          policy.GetFqdnCacheIDHandler
+	PolicyGetFqdnNamesHandler            policy.GetFqdnNamesHandler
+	DaemonGetHealthzHandler              daemon.GetHealthzHandler
+	PolicyGetIPHandler                   policy.GetIPHandler
+	PolicyGetIdentityHandler             policy.GetIdentityHandler
+	PolicyGetIdentityEndpointsHandler    policy.GetIdentityEndpointsHandler
+	PolicyGetIdentityIDHandler           policy.GetIdentityIDHandler
+	ServiceGetLrpHandler                 service.GetLrpHandler
+	DaemonGetMapHandler                  daemon.GetMapHandler
+	DaemonGetMapNameHandler              daemon.GetMapNameHandler
+	DaemonGetMapNameEventsHandler        daemon.GetMapNameEventsHandler
+	MetricsGetMetricsHandler             metrics.GetMetricsHandler
+	DaemonGetNodeIdsHandler              daemon.GetNodeIdsHandler
+	PolicyGetPolicyHandler               policy.GetPolicyHandler
+	PolicyGetPolicySelectorsHandler      policy.GetPolicySelectorsHandler
+	PrefilterGetPrefilterHandler         prefilter.GetPrefilterHandler
+	RecorderGetRecorderHandler           recorder.GetRecorderHandler
+	RecorderGetRecorderIDHandler         recorder.GetRecorderIDHandler
+	RecorderGetRecorderMasksHandler      recorder.GetRecorderMasksHandler
+	ServiceGetServiceHandler             service.GetServiceHandler
+	ServiceGetServiceIDHandler           service.GetServiceIDHandler
+	StatedbGetStatedbDumpHandler         statedb.GetStatedbDumpHandler
+	StatedbGetStatedbQueryTableHandler   statedb.GetStatedbQueryTableHandler
+	DaemonPatchConfigHandler             daemon.PatchConfigHandler
+	EndpointPatchEndpointIDHandler       endpoint.PatchEndpointIDHandler
+	EndpointPatchEndpointIDConfigHandler endpoint.PatchEndpointIDConfigHandler
+	EndpointPatchEndpointIDLabelsHandler endpoint.PatchEndpointIDLabelsHandler
+	PrefilterPatchPrefilterHandler       prefilter.PatchPrefilterHandler
+	IpamPostIpamHandler                  ipam.PostIpamHandler
+	IpamPostIpamIPHandler                ipam.PostIpamIPHandler
+	EndpointPutEndpointIDHandler         endpoint.PutEndpointIDHandler
+	PolicyPutPolicyHandler               policy.PutPolicyHandler
+	RecorderPutRecorderIDHandler         recorder.PutRecorderIDHandler
+	ServicePutServiceIDHandler           service.PutServiceIDHandler
+}
+
+func newAPI(p apiParams) *restapi.CiliumAPIAPI {
+	api := restapi.NewCiliumAPIAPI(p.Spec.Document)
+
+	// Construct the API from the provided handlers
+
+	api.EndpointDeleteEndpointHandler = p.EndpointDeleteEndpointHandler
+	api.EndpointDeleteEndpointIDHandler = p.EndpointDeleteEndpointIDHandler
+	api.PolicyDeleteFqdnCacheHandler = p.PolicyDeleteFqdnCacheHandler
+	api.IpamDeleteIpamIPHandler = p.IpamDeleteIpamIPHandler
+	api.PolicyDeletePolicyHandler = p.PolicyDeletePolicyHandler
+	api.PrefilterDeletePrefilterHandler = p.PrefilterDeletePrefilterHandler
+	api.RecorderDeleteRecorderIDHandler = p.RecorderDeleteRecorderIDHandler
+	api.ServiceDeleteServiceIDHandler = p.ServiceDeleteServiceIDHandler
+	api.BgpGetBgpPeersHandler = p.BgpGetBgpPeersHandler
+	api.BgpGetBgpRoutePoliciesHandler = p.BgpGetBgpRoutePoliciesHandler
+	api.BgpGetBgpRoutesHandler = p.BgpGetBgpRoutesHandler
+	api.DaemonGetCgroupDumpMetadataHandler = p.DaemonGetCgroupDumpMetadataHandler
+	api.DaemonGetClusterNodesHandler = p.DaemonGetClusterNodesHandler
+	api.DaemonGetConfigHandler = p.DaemonGetConfigHandler
+	api.DaemonGetDebuginfoHandler = p.DaemonGetDebuginfoHandler
+	api.EndpointGetEndpointHandler = p.EndpointGetEndpointHandler
+	api.EndpointGetEndpointIDHandler = p.EndpointGetEndpointIDHandler
+	api.EndpointGetEndpointIDConfigHandler = p.EndpointGetEndpointIDConfigHandler
+	api.EndpointGetEndpointIDHealthzHandler = p.EndpointGetEndpointIDHealthzHandler
+	api.EndpointGetEndpointIDLabelsHandler = p.EndpointGetEndpointIDLabelsHandler
+	api.EndpointGetEndpointIDLogHandler = p.EndpointGetEndpointIDLogHandler
+	api.PolicyGetFqdnCacheHandler = p.PolicyGetFqdnCacheHandler
+	api.PolicyGetFqdnCacheIDHandler = p.PolicyGetFqdnCacheIDHandler
+	api.PolicyGetFqdnNamesHandler = p.PolicyGetFqdnNamesHandler
+	api.DaemonGetHealthzHandler = p.DaemonGetHealthzHandler
+	api.PolicyGetIPHandler = p.PolicyGetIPHandler
+	api.PolicyGetIdentityHandler = p.PolicyGetIdentityHandler
+	api.PolicyGetIdentityEndpointsHandler = p.PolicyGetIdentityEndpointsHandler
+	api.PolicyGetIdentityIDHandler = p.PolicyGetIdentityIDHandler
+	api.ServiceGetLrpHandler = p.ServiceGetLrpHandler
+	api.DaemonGetMapHandler = p.DaemonGetMapHandler
+	api.DaemonGetMapNameHandler = p.DaemonGetMapNameHandler
+	api.DaemonGetMapNameEventsHandler = p.DaemonGetMapNameEventsHandler
+	api.MetricsGetMetricsHandler = p.MetricsGetMetricsHandler
+	api.DaemonGetNodeIdsHandler = p.DaemonGetNodeIdsHandler
+	api.PolicyGetPolicyHandler = p.PolicyGetPolicyHandler
+	api.PolicyGetPolicySelectorsHandler = p.PolicyGetPolicySelectorsHandler
+	api.PrefilterGetPrefilterHandler = p.PrefilterGetPrefilterHandler
+	api.RecorderGetRecorderHandler = p.RecorderGetRecorderHandler
+	api.RecorderGetRecorderIDHandler = p.RecorderGetRecorderIDHandler
+	api.RecorderGetRecorderMasksHandler = p.RecorderGetRecorderMasksHandler
+	api.ServiceGetServiceHandler = p.ServiceGetServiceHandler
+	api.ServiceGetServiceIDHandler = p.ServiceGetServiceIDHandler
+	api.StatedbGetStatedbDumpHandler = p.StatedbGetStatedbDumpHandler
+	api.StatedbGetStatedbQueryTableHandler = p.StatedbGetStatedbQueryTableHandler
+	api.DaemonPatchConfigHandler = p.DaemonPatchConfigHandler
+	api.EndpointPatchEndpointIDHandler = p.EndpointPatchEndpointIDHandler
+	api.EndpointPatchEndpointIDConfigHandler = p.EndpointPatchEndpointIDConfigHandler
+	api.EndpointPatchEndpointIDLabelsHandler = p.EndpointPatchEndpointIDLabelsHandler
+	api.PrefilterPatchPrefilterHandler = p.PrefilterPatchPrefilterHandler
+	api.IpamPostIpamHandler = p.IpamPostIpamHandler
+	api.IpamPostIpamIPHandler = p.IpamPostIpamIPHandler
+	api.EndpointPutEndpointIDHandler = p.EndpointPutEndpointIDHandler
+	api.PolicyPutPolicyHandler = p.PolicyPutPolicyHandler
+	api.RecorderPutRecorderIDHandler = p.RecorderPutRecorderIDHandler
+	api.ServicePutServiceIDHandler = p.ServicePutServiceIDHandler
+
+	// Inject custom middleware if provided by Hive
+	if p.Middleware != nil {
+		api.Middleware = func(builder middleware.Builder) http.Handler {
+			return p.Middleware(api.Context().APIHandler(builder))
+		}
+	}
+
+	return api
+}
 
 var defaultSchemes []string
 
