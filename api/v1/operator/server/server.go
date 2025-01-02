@@ -12,19 +12,29 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
+
 	"strconv"
 	"sync"
-	"sync/atomic"
-	"syscall"
 	"time"
+	"encoding/json"
+	"github.com/sirupsen/logrus"
 
+	"github.com/go-openapi/loads"
 	"github.com/go-openapi/runtime/flagext"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/runtime/middleware"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/spf13/pflag"
 	"golang.org/x/net/netutil"
 
 	"github.com/ccfish2/dolphin/api/v1/operator/server/restapi"
+	"github.com/ccfish2/dolphin/api/v1/operator/server/restapi/metrics"
+	"github.com/ccfish2/dolphin/api/v1/operator/server/restapi/operator"
+	"github.com/ccfish2/dolphin/pkg/api"
+
+	"github.com/ccfish2/infra/pkg/hive"
+	"github.com/ccfish2/infra/pkg/hive/cell"
+	
 )
 
 const (
@@ -33,6 +43,10 @@ const (
 	schemeUnix  = "unix"
 )
 
+var (
+	swaggerJson json.RawMessage
+	FlatSwaggerJson json.RawMessage
+)
 var defaultSchemes []string
 
 func init() {
@@ -44,10 +58,7 @@ func init() {
 // NewServer creates a new api dolphin operator server but does not configure it
 func NewServer(api *restapi.DolphinOperatorAPI) *Server {
 	s := new(Server)
-
-	s.shutdown = make(chan struct{})
 	s.api = api
-	s.interrupt = make(chan os.Signal, 1)
 	return s
 }
 
@@ -97,10 +108,11 @@ type Server struct {
 	api          *restapi.DolphinOperatorAPI
 	handler      http.Handler
 	hasListeners bool
-	shutdown     chan struct{}
-	shuttingDown int32
-	interrupted  bool
-	interrupt    chan os.Signal
+	servers []http.Server
+
+	wg sync.WaitGroup
+	shutdowner hive.Shutdowner
+	logger logrus.FieldLogger
 }
 
 // Logf logs message either via defined user logger or via system one if no user logger is defined.
@@ -151,6 +163,14 @@ func (s *Server) hasScheme(scheme string) bool {
 
 // Serve the api
 func (s *Server) Serve() (err error) {
+	if err := s.Start(context.TODO()); err != nil {
+		return err
+	}
+	s.wg.Wait()
+	return nil
+}
+
+func (s *Server) Start(cell.HookContext) (err error) {
 	if !s.hasListeners {
 		if err = s.Listen(); err != nil {
 			return err
@@ -167,9 +187,7 @@ func (s *Server) Serve() (err error) {
 	}
 
 	wg := new(sync.WaitGroup)
-	once := new(sync.Once)
-	signalNotify(s.interrupt)
-	go handleInterrupt(once, s)
+	
 
 	servers := []*http.Server{}
 
@@ -317,11 +335,6 @@ func (s *Server) Serve() (err error) {
 			s.Logf("Stopped serving dolphin operator at https://%s", l.Addr())
 		}(tls.NewListener(s.httpsServerL, httpsServer.TLSConfig))
 	}
-
-	wg.Add(1)
-	go s.handleShutdown(wg, &servers)
-
-	wg.Wait()
 	return nil
 }
 
@@ -398,30 +411,22 @@ func (s *Server) Listen() error {
 
 // Shutdown server and clean up resources
 func (s *Server) Shutdown() error {
-	if atomic.CompareAndSwapInt32(&s.shuttingDown, 0, 1) {
-		close(s.shutdown)
-	}
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), s.GracefulTimeout)
+	defer cancel()
+	return s.Stop(ctx)
 }
 
-func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) {
+func (s *Server) Stop(ctx cell.HookContext) error {
 	// wg.Done must occur last, after s.api.ServerShutdown()
 	// (to preserve old behaviour)
-	defer wg.Done()
-
-	<-s.shutdown
-
-	servers := *serversPtr
+	s.api.PreServerShutdown()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), s.GracefulTimeout)
 	defer cancel()
 
-	// first execute the pre-shutdown hook
-	s.api.PreServerShutdown()
-
 	shutdownChan := make(chan bool)
-	for i := range servers {
-		server := servers[i]
+	for i := range s.servers {
+		server := s.servers[i]
 		go func() {
 			var success bool
 			defer func() {
@@ -438,12 +443,15 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 
 	// Wait until all listeners have successfully shut down before calling ServerShutdown
 	success := true
-	for range servers {
+	for range s.servers {
 		success = success && <-shutdownChan
 	}
 	if success {
 		s.api.ServerShutdown()
 	}
+	s.wg.Wait()
+	s.servers = nil
+	return nil
 }
 
 // GetHandler returns a handler useful for testing
@@ -486,22 +494,100 @@ func (s *Server) TLSListener() (net.Listener, error) {
 	return s.httpsServerL, nil
 }
 
-func handleInterrupt(once *sync.Once, s *Server) {
-	once.Do(func() {
-		for range s.interrupt {
-			if s.interrupted {
-				s.Logf("Server already shutting down")
-				continue
-			}
-			s.interrupted = true
-			s.Logf("Shutting down... ")
-			if err := s.Shutdown(); err != nil {
-				s.Logf("HTTP server Shutdown: %v", err)
-			}
-		}
-	})
+
+type ServerConfig struct{
+	EnableDolphinOperatorServerAccess []string
+}
+var (
+	defaultServerConfig = ServerConfig{
+		[]string{"*"},
+	}
+	AdminEnableFlag = "enable-dolphin-operator-server-access"
+)
+
+func(def ServerConfig) Flags(flags *pflag.FlagSet)  {
+	flags.StringSlice(AdminEnableFlag, def.EnableDolphinOperatorServerAccess, "lists of allowed server access")
 }
 
-func signalNotify(interrupt chan<- os.Signal) {
-	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+var Cell = cell.Module(
+	"dolphin-operator-server",
+	"Dolphin Operator Server",
+	cell.Provide(newForCell),
+	APICell,
+)
+
+var APICell = cell.Provide(newAPI)
+
+type apiParams struct{
+	cell.In
+
+	Spec *Spec
+	Middleware middleware.Builder
+
+	OperatorGetHealthzHandler operator.GetHealthzHandler
+	OperatorGetMetricsHandler metrics.GetMetricsHandler
+}
+
+func newAPI(p apiParams) *restapi.DolphinOperatorAPI {
+	api := restapi.NewDolphinOperatorAPI(p.Spec.Document)
+	
+
+	api.OperatorGetHealthzHandler = p.OperatorGetHealthzHandler
+	api.MetricsGetMetricsHandler = p.OperatorGetMetricsHandler
+
+	if p.Middleware != nil {
+	api.Middleware = func(b middleware.Builder) http.Handler {
+			return p.Middleware(api.Context().APIHandler(b))
+		}
+	} 
+
+	return api
+}
+type serverParams struct {
+	cell.In
+
+	Lc       cell.Lifecycle
+	Shutdown hive.Shutdowner
+	Logger   logrus.FieldLogger
+
+	Spec *Spec
+	API  *restapi.DolphinOperatorAPI
+}
+
+func newForCell(p serverParams) (*Server, error) {
+	s := NewServer(p.API)
+s.shutdowner = p.Shutdown
+	s.logger = p.Logger
+	p.Lc.Append(s)
+	return s, nil
+}
+
+var SpecCell = cell.Module(
+	"dolphin-operator-spec",
+	"Dolphin Operator Specification",
+	cell.Config(defaultServerConfig),
+	cell.Provide(newSpec),
+)
+
+type Spec struct {
+	*loads.Document
+
+	// a set of apis that are disabled
+	DeniedAPIs api.PathSet
+}
+
+func newSpec(cfg ServerConfig) (*Spec, error) {
+	swaggerSpec, err := loads.Analyzed(SwaggerJSON, "")
+	if err != nil {
+		return nil, err
+	}
+	deniedAPI, err := api.AllowedFlagsToDeniedPaths(swaggerSpec, cfg.EnableDolphinOperatorServerAccess)
+	if err != nil {
+		return nil, err
+	}
+	return &Spec{
+		Document:  swaggerSpec,
+		DeniedAPIs: deniedAPI,
+	},nil
 }

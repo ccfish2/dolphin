@@ -23,6 +23,8 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	
+
 	api := restapi.NewDolphinOperatorAPI(swaggerSpec)
 	server := swaggerserversrv.NewServer(api)
 	defer server.Shutdown()
