@@ -1,0 +1,51 @@
+---
+swagger: '2.0'
+basePath: "/v1"
+produces:
+- application/json
+consumes:
+- application/json
+x-schemes:
+- unix
+info:
+  version: "1.0.0"
+  title: dolphin operator
+  description: The API for the dolphin operator project
+paths:
+  "/metrics/":
+    get:
+      tags: 
+      - metrics
+      description: returns all operator metrics
+      parameters: []
+      responses:
+        '200':
+          description: Success
+          schema:
+            type: array
+            items:
+              type: string
+        '500':
+          x-go-name: Failed
+          description: could not retrieve metrics
+  '/healthz':
+    get:
+      tags:
+        - operator
+      parameters: []
+      produces:
+      - text/plain
+      summary: "retrieve health"
+      responses:
+        '200':
+          description: operator is healthy
+          schema:
+            type: string
+        '500':
+          description: operator is not healthy
+          schema:
+            type: string
+        '501':
+          description: operator healthy data is not retrievable
+          schema:
+            type: string
