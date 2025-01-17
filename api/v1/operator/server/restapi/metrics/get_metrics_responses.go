@@ -9,6 +9,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	"github.com/ccfish2/dolphin/api/v1/operator/models"
 )
 
 // GetMetricsOKCode is the HTTP code returned for type GetMetricsOK
@@ -24,7 +26,7 @@ type GetMetricsOK struct {
 	/*
 	  In: Body
 	*/
-	Payload []string `json:"body,omitempty"`
+	Payload []*models.Metric `json:"body,omitempty"`
 }
 
 // NewGetMetricsOK creates GetMetricsOK with default headers values
@@ -34,13 +36,13 @@ func NewGetMetricsOK() *GetMetricsOK {
 }
 
 // WithPayload adds the payload to the get metrics o k response
-func (o *GetMetricsOK) WithPayload(payload []string) *GetMetricsOK {
+func (o *GetMetricsOK) WithPayload(payload []*models.Metric) *GetMetricsOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the get metrics o k response
-func (o *GetMetricsOK) SetPayload(payload []string) {
+func (o *GetMetricsOK) SetPayload(payload []*models.Metric) {
 	o.Payload = payload
 }
 
@@ -51,7 +53,7 @@ func (o *GetMetricsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Pr
 	payload := o.Payload
 	if payload == nil {
 		// return empty array
-		payload = make([]string, 0, 50)
+		payload = make([]*models.Metric, 0, 50)
 	}
 
 	if err := producer.Produce(rw, payload); err != nil {
@@ -60,26 +62,27 @@ func (o *GetMetricsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Pr
 }
 
 // GetMetricsInternalServerErrorCode is the HTTP code returned for type GetMetricsInternalServerError
-const GetMetricsInternalServerErrorCode int = 500
+const GetMetricsFailedCode int = 500
 
 /*
-GetMetricsInternalServerError could not retrieve metrics
+GetMetricsFailed Metrics cannot be retrieved
 
-swagger:response getMetricsInternalServerError
+swagger:response getMetricsFailed
 */
-type GetMetricsInternalServerError struct {
+type GetMetricsFailed struct {
 }
 
-// NewGetMetricsInternalServerError creates GetMetricsInternalServerError with default headers values
-func NewGetMetricsInternalServerError() *GetMetricsInternalServerError {
+// NewGetMetricsFailed creates GetMetricsFailed with default headers values
+func NewGetMetricsFailed() *GetMetricsFailed {
 
-	return &GetMetricsInternalServerError{}
+	return &GetMetricsFailed{}
 }
 
 // WriteResponse to the client
-func (o *GetMetricsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *GetMetricsFailed) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(500)
 }
+
