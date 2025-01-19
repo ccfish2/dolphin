@@ -13,14 +13,19 @@ type Endpoint struct {
 }
 type PathSet map[string]Endpoint
 
-func parsesSpecPath(paths spec.Paths) PathSet {
-	panic("")
+func parsesSpecPaths(paths *spec.Paths) PathSet {
+	res := make(PathSet)
+	// impl if need
+	return PathSet(res)
 }
 
 func generateDeniedAPIEndpoints(allpaths PathSet, allowed []string) (PathSet, error) {
-	panic("")
+	denied := allpaths
+	// impl if need
+	return denied, nil
 }
 
 func AllowedFlagsToDeniedPaths(spec *loads.Document, allowed []string) (PathSet, error) {
-	panic("")
+	paths := parsesSpecPaths(spec.Spec().Paths)
+	return generateDeniedAPIEndpoints(paths, allowed)
 }
