@@ -6,6 +6,6 @@ import (
 	"github.com/ccfish2/dolphin/server/dolphinadmin"
 )
 
-func Main() {
+func main() {
 	dolphinadmin.Main(os.Args)
 }

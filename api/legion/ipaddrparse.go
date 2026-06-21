@@ -15,13 +15,13 @@ func main() {
 
 	fileData, err := os.ReadFile(fileName)
 	if err != nil {
-		log.Fatal("failed opening intput data %v", err)
+		log.Fatalf("failed opening intput data %v", err)
 		return
 	}
 
 	var ipranges map[string]interface{}
 	if err := json.Unmarshal(fileData, &ipranges); err != nil {
-		log.Fatal("Parse JSON file failure <%v>", err)
+		log.Fatalf("Parse JSON file failure <%v>", err)
 		return
 	}
 
