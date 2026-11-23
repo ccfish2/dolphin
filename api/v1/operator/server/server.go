@@ -7,34 +7,23 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
-
+	"os/signal"
 	"strconv"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
-	"encoding/json"
-	"github.com/sirupsen/logrus"
 
-	"github.com/go-openapi/loads"
-	"github.com/go-openapi/runtime/flagext"
-	"github.com/go-openapi/swag"
-	"github.com/go-openapi/runtime/middleware"
 	flags "github.com/jessevdk/go-flags"
-	"github.com/spf13/pflag"
 	"golang.org/x/net/netutil"
 
 	"github.com/ccfish2/dolphin/api/v1/operator/server/restapi"
-	"github.com/ccfish2/dolphin/api/v1/operator/server/restapi/metrics"
-	"github.com/ccfish2/dolphin/api/v1/operator/server/restapi/operator"
-	"github.com/ccfish2/dolphin/pkg/api"
-
-	"github.com/ccfish2/infra/pkg/hive"
-	"github.com/ccfish2/infra/pkg/hive/cell"
-	
+	"github.com/go-openapi/runtime/flagext"
+	"github.com/go-openapi/swag/netutils"
 )
 
 const (
@@ -43,22 +32,22 @@ const (
 	schemeUnix  = "unix"
 )
 
-var (
-	swaggerJson json.RawMessage
-	FlatSwaggerJson json.RawMessage
-)
 var defaultSchemes []string
 
 func init() {
 	defaultSchemes = []string{
 		schemeHTTP,
+		schemeUnix,
 	}
 }
 
 // NewServer creates a new api dolphin operator server but does not configure it
 func NewServer(api *restapi.DolphinOperatorAPI) *Server {
 	s := new(Server)
+
+	s.shutdown = make(chan struct{})
 	s.api = api
+	s.interrupt = make(chan os.Signal, 1)
 	return s
 }
 
@@ -91,7 +80,7 @@ type Server struct {
 	ListenLimit  int           `long:"listen-limit" description:"limit the number of outstanding requests"`
 	KeepAlive    time.Duration `long:"keep-alive" description:"sets the TCP keep-alive timeouts on accepted connections. It prunes dead TCP connections ( e.g. closing laptop mid-download)" default:"3m"`
 	ReadTimeout  time.Duration `long:"read-timeout" description:"maximum duration before timing out read of the request" default:"30s"`
-	WriteTimeout time.Duration `long:"write-timeout" description:"maximum duration before timing out write of the response" default:"60s"`
+	WriteTimeout time.Duration `long:"write-timeout" description:"maximum duration before timing out write of the response" default:"30s"`
 	httpServerL  net.Listener
 
 	TLSHost           string         `long:"tls-host" description:"the IP to listen on for tls, when not specified it's the same as --host" env:"TLS_HOST"`
@@ -108,15 +97,14 @@ type Server struct {
 	api          *restapi.DolphinOperatorAPI
 	handler      http.Handler
 	hasListeners bool
-	servers []http.Server
-
-	wg sync.WaitGroup
-	shutdowner hive.Shutdowner
-	logger logrus.FieldLogger
+	shutdown     chan struct{}
+	shuttingDown int32
+	interrupted  bool
+	interrupt    chan os.Signal
 }
 
 // Logf logs message either via defined user logger or via system one if no user logger is defined.
-func (s *Server) Logf(f string, args ...interface{}) {
+func (s *Server) Logf(f string, args ...any) {
 	if s.api != nil && s.api.Logger != nil {
 		s.api.Logger(f, args...)
 	} else {
@@ -126,7 +114,7 @@ func (s *Server) Logf(f string, args ...interface{}) {
 
 // Fatalf logs message either via defined user logger or via system one if no user logger is defined.
 // Exits with non-zero status after printing
-func (s *Server) Fatalf(f string, args ...interface{}) {
+func (s *Server) Fatalf(f string, args ...any) {
 	if s.api != nil && s.api.Logger != nil {
 		s.api.Logger(f, args...)
 		os.Exit(1)
@@ -163,14 +151,6 @@ func (s *Server) hasScheme(scheme string) bool {
 
 // Serve the api
 func (s *Server) Serve() (err error) {
-	if err := s.Start(context.TODO()); err != nil {
-		return err
-	}
-	s.wg.Wait()
-	return nil
-}
-
-func (s *Server) Start(cell.HookContext) (err error) {
 	if !s.hasListeners {
 		if err = s.Listen(); err != nil {
 			return err
@@ -187,7 +167,9 @@ func (s *Server) Start(cell.HookContext) (err error) {
 	}
 
 	wg := new(sync.WaitGroup)
-	
+	once := new(sync.Once)
+	signalNotify(s.interrupt)
+	go handleInterrupt(once, s)
 
 	servers := []*http.Server{}
 
@@ -206,8 +188,8 @@ func (s *Server) Start(cell.HookContext) (err error) {
 		s.Logf("Serving dolphin operator at unix://%s", s.SocketPath)
 		go func(l net.Listener) {
 			defer wg.Done()
-			if err := domainSocket.Serve(l); err != nil && err != http.ErrServerClosed {
-				s.Fatalf("%v", err)
+			if errServe := domainSocket.Serve(l); errServe != nil && !errors.Is(errServe, http.ErrServerClosed) {
+				s.Fatalf("%v", errServe)
 			}
 			s.Logf("Stopped serving dolphin operator at unix://%s", s.SocketPath)
 		}(s.domainSocketL)
@@ -236,8 +218,8 @@ func (s *Server) Start(cell.HookContext) (err error) {
 		s.Logf("Serving dolphin operator at http://%s", s.httpServerL.Addr())
 		go func(l net.Listener) {
 			defer wg.Done()
-			if err := httpServer.Serve(l); err != nil && err != http.ErrServerClosed {
-				s.Fatalf("%v", err)
+			if errServe := httpServer.Serve(l); errServe != nil && !errors.Is(errServe, http.ErrServerClosed) {
+				s.Fatalf("%v", errServe)
 			}
 			s.Logf("Stopped serving dolphin operator at http://%s", l.Addr())
 		}(s.httpServerL)
@@ -259,9 +241,6 @@ func (s *Server) Start(cell.HookContext) (err error) {
 
 		// Inspired by https://blog.bracebin.com/achieving-perfect-ssl-labs-score-with-go
 		httpsServer.TLSConfig = &tls.Config{
-			// Causes servers to use Go's default ciphersuite preferences,
-			// which are tuned to avoid attacks. Does nothing on clients.
-			PreferServerCipherSuites: true,
 			// Only use curves which have assembly implementations
 			// https://github.com/golang/go/tree/master/src/crypto/elliptic
 			CurvePreferences: []tls.CurveID{tls.CurveP256},
@@ -298,7 +277,7 @@ func (s *Server) Start(cell.HookContext) (err error) {
 			caCertPool := x509.NewCertPool()
 			ok := caCertPool.AppendCertsFromPEM(caCert)
 			if !ok {
-				return fmt.Errorf("cannot parse CA certificate")
+				return errors.New("cannot parse CA certificate")
 			}
 			httpsServer.TLSConfig.ClientCAs = caCertPool
 			httpsServer.TLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
@@ -329,12 +308,17 @@ func (s *Server) Start(cell.HookContext) (err error) {
 		s.Logf("Serving dolphin operator at https://%s", s.httpsServerL.Addr())
 		go func(l net.Listener) {
 			defer wg.Done()
-			if err := httpsServer.Serve(l); err != nil && err != http.ErrServerClosed {
-				s.Fatalf("%v", err)
+			if errServe := httpsServer.Serve(l); errServe != nil && !errors.Is(errServe, http.ErrServerClosed) {
+				s.Fatalf("%v", errServe)
 			}
 			s.Logf("Stopped serving dolphin operator at https://%s", l.Addr())
 		}(tls.NewListener(s.httpsServerL, httpsServer.TLSConfig))
 	}
+
+	wg.Add(1)
+	go s.handleShutdown(wg, &servers)
+
+	wg.Wait()
 	return nil
 }
 
@@ -381,7 +365,7 @@ func (s *Server) Listen() error {
 			return err
 		}
 
-		h, p, err := swag.SplitHostPort(listener.Addr().String())
+		h, p, err := netutils.SplitHostPort(listener.Addr().String())
 		if err != nil {
 			return err
 		}
@@ -396,7 +380,7 @@ func (s *Server) Listen() error {
 			return err
 		}
 
-		sh, sp, err := swag.SplitHostPort(tlsListener.Addr().String())
+		sh, sp, err := netutils.SplitHostPort(tlsListener.Addr().String())
 		if err != nil {
 			return err
 		}
@@ -411,22 +395,30 @@ func (s *Server) Listen() error {
 
 // Shutdown server and clean up resources
 func (s *Server) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), s.GracefulTimeout)
-	defer cancel()
-	return s.Stop(ctx)
+	if atomic.CompareAndSwapInt32(&s.shuttingDown, 0, 1) {
+		close(s.shutdown)
+	}
+	return nil
 }
 
-func (s *Server) Stop(ctx cell.HookContext) error {
+func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) {
 	// wg.Done must occur last, after s.api.ServerShutdown()
 	// (to preserve old behaviour)
-	s.api.PreServerShutdown()
+	defer wg.Done()
+
+	<-s.shutdown
+
+	servers := *serversPtr
 
 	ctx, cancel := context.WithTimeout(context.TODO(), s.GracefulTimeout)
 	defer cancel()
 
+	// first execute the pre-shutdown hook
+	s.api.PreServerShutdown()
+
 	shutdownChan := make(chan bool)
-	for i := range s.servers {
-		server := s.servers[i]
+	for i := range servers {
+		server := servers[i]
 		go func() {
 			var success bool
 			defer func() {
@@ -443,15 +435,12 @@ func (s *Server) Stop(ctx cell.HookContext) error {
 
 	// Wait until all listeners have successfully shut down before calling ServerShutdown
 	success := true
-	for range s.servers {
+	for range servers {
 		success = success && <-shutdownChan
 	}
 	if success {
 		s.api.ServerShutdown()
 	}
-	s.wg.Wait()
-	s.servers = nil
-	return nil
 }
 
 // GetHandler returns a handler useful for testing
@@ -494,100 +483,22 @@ func (s *Server) TLSListener() (net.Listener, error) {
 	return s.httpsServerL, nil
 }
 
-
-type ServerConfig struct{
-	EnableDolphinOperatorServerAccess []string
-}
-var (
-	defaultServerConfig = ServerConfig{
-		[]string{"*"},
-	}
-	AdminEnableFlag = "enable-dolphin-operator-server-access"
-)
-
-func(def ServerConfig) Flags(flags *pflag.FlagSet)  {
-	flags.StringSlice(AdminEnableFlag, def.EnableDolphinOperatorServerAccess, "lists of allowed server access")
-}
-
-
-var Cell = cell.Module(
-	"dolphin-operator-server",
-	"Dolphin Operator Server",
-	cell.Provide(newForCell),
-	APICell,
-)
-
-var APICell = cell.Provide(newAPI)
-
-type apiParams struct{
-	cell.In
-
-	Spec *Spec
-	Middleware middleware.Builder
-
-	OperatorGetHealthzHandler operator.GetHealthzHandler
-	OperatorGetMetricsHandler metrics.GetMetricsHandler
-}
-
-func newAPI(p apiParams) *restapi.DolphinOperatorAPI {
-	api := restapi.NewDolphinOperatorAPI(p.Spec.Document)
-	
-
-	api.OperatorGetHealthzHandler = p.OperatorGetHealthzHandler
-	api.MetricsGetMetricsHandler = p.OperatorGetMetricsHandler
-
-	if p.Middleware != nil {
-	api.Middleware = func(b middleware.Builder) http.Handler {
-			return p.Middleware(api.Context().APIHandler(b))
+func handleInterrupt(once *sync.Once, s *Server) {
+	once.Do(func() {
+		for range s.interrupt {
+			if s.interrupted {
+				s.Logf("Server already shutting down")
+				continue
+			}
+			s.interrupted = true
+			s.Logf("Shutting down... ")
+			if err := s.Shutdown(); err != nil {
+				s.Logf("HTTP server Shutdown: %v", err)
+			}
 		}
-	} 
-
-	return api
-}
-type serverParams struct {
-	cell.In
-
-	Lc       cell.Lifecycle
-	Shutdown hive.Shutdowner
-	Logger   logrus.FieldLogger
-
-	Spec *Spec
-	API  *restapi.DolphinOperatorAPI
+	})
 }
 
-func newForCell(p serverParams) (*Server, error) {
-	s := NewServer(p.API)
-s.shutdowner = p.Shutdown
-	s.logger = p.Logger
-	p.Lc.Append(s)
-	return s, nil
-}
-
-var SpecCell = cell.Module(
-	"dolphin-operator-spec",
-	"Dolphin Operator Specification",
-	cell.Config(defaultServerConfig),
-	cell.Provide(newSpec),
-)
-
-type Spec struct {
-	*loads.Document
-
-	// a set of apis that are disabled
-	DeniedAPIs api.PathSet
-}
-
-func newSpec(cfg ServerConfig) (*Spec, error) {
-	swaggerSpec, err := loads.Analyzed(SwaggerJSON, "")
-	if err != nil {
-		return nil, err
-	}
-	deniedAPI, err := api.AllowedFlagsToDeniedPaths(swaggerSpec, cfg.EnableDolphinOperatorServerAccess)
-	if err != nil {
-		return nil, err
-	}
-	return &Spec{
-		Document:  swaggerSpec,
-		DeniedAPIs: deniedAPI,
-	},nil
+func signalNotify(interrupt chan<- os.Signal) {
+	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM)
 }

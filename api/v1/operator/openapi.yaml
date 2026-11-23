@@ -49,3 +49,25 @@ paths:
           description: operator healthy data is not retrievable
           schema:
             type: string
+  '/gateways':
+    get:
+      summary: list all gateway status
+      description: Returns the list of gateways and their status.
+      tags:
+      - gateways
+      parameters: []
+      responses:
+        '200':
+          description: Success
+          schema:
+            type: array
+            items:
+              "$ref": "#/definitions/GateWays"
+definitions:
+  GateWays:
+    type: object
+    properties:
+      name:
+        type: string
+      status:
+        type: string
