@@ -5,14 +5,6 @@ package models
 // +k8s:deepcopy-gen=true
 //
 // swagger:model GateWays
-type GateWays struct {
-
-	// Cluster configuration exposed by the remote cluster
-	Config *GateWaysConfig `json:"config,omitempty"`
-
-	// Status of the control plane
-	Status string `json:"status,omitempty"`
-}
 
 // GateWaysConfig Cluster configuration exposed by the remote cluster
 //
