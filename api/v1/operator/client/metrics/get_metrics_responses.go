@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/ccfish2/dolphin/api/v1/operator/models"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 )
@@ -46,7 +47,7 @@ func NewGetMetricsOK() *GetMetricsOK {
 //
 // Success
 type GetMetricsOK struct {
-	Payload []string
+	Payload []*models.Metric
 }
 
 // IsSuccess returns true when this get metrics o k response has a 2xx status code
@@ -89,7 +90,7 @@ func (o *GetMetricsOK) String() string {
 	return fmt.Sprintf("[GET /metrics/][%d] getMetricsOK %s", 200, payload)
 }
 
-func (o *GetMetricsOK) GetPayload() []string {
+func (o *GetMetricsOK) GetPayload() []*models.Metric {
 	return o.Payload
 }
 

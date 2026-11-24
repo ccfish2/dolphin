@@ -92,7 +92,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/Metric"
               }
             }
           },
@@ -113,6 +113,20 @@ func init() {
         },
         "status": {
           "type": "string"
+        }
+      }
+    },
+    "Metric": {
+      "type": "object",
+      "properties": {
+        "help": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
         }
       }
     }
@@ -199,7 +213,7 @@ func init() {
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/Metric"
               }
             }
           },
@@ -220,6 +234,20 @@ func init() {
         },
         "status": {
           "type": "string"
+        }
+      }
+    },
+    "Metric": {
+      "type": "object",
+      "properties": {
+        "help": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
         }
       }
     }

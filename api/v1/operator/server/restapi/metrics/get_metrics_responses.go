@@ -5,6 +5,7 @@ package metrics
 import (
 	"net/http"
 
+	"github.com/ccfish2/dolphin/api/v1/operator/models"
 	"github.com/go-openapi/runtime"
 )
 
@@ -17,7 +18,7 @@ const GetMetricsOKCode int = 200
 type GetMetricsOK struct {
 
 	// In: Body
-	Payload []string `json:"body,omitempty"`
+	Payload []*models.Metric `json:"body,omitempty"`
 }
 
 // NewGetMetricsOK creates GetMetricsOK with default headers values
@@ -27,13 +28,13 @@ func NewGetMetricsOK() *GetMetricsOK {
 }
 
 // WithPayload adds the payload to the get metrics o k response
-func (o *GetMetricsOK) WithPayload(payload []string) *GetMetricsOK {
+func (o *GetMetricsOK) WithPayload(payload []*models.Metric) *GetMetricsOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the get metrics o k response
-func (o *GetMetricsOK) SetPayload(payload []string) {
+func (o *GetMetricsOK) SetPayload(payload []*models.Metric) {
 	o.Payload = payload
 }
 
@@ -44,7 +45,7 @@ func (o *GetMetricsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Pr
 	payload := o.Payload
 	if payload == nil {
 		// return empty array
-		payload = make([]string, 0, 50)
+		payload = make([]*models.Metric, 0, 50)
 	}
 
 	if err := producer.Produce(rw, payload); err != nil {

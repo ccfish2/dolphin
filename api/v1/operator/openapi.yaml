@@ -14,7 +14,7 @@ info:
 paths:
   "/metrics/":
     get:
-      tags: 
+      tags:
       - metrics
       description: returns all operator metrics
       parameters: []
@@ -24,7 +24,7 @@ paths:
           schema:
             type: array
             items:
-              type: string
+              "$ref": "#/definitions/Metric"
         '500':
           x-go-name: Failed
           description: could not retrieve metrics
@@ -70,4 +70,13 @@ definitions:
       name:
         type: string
       status:
+        type: string
+  Metric:
+    type: object
+    properties:
+      name:
+        type: string
+      value:
+        type: number
+      help:
         type: string
